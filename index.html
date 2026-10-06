@@ -148,6 +148,27 @@ svg.fig .rad{stroke:var(--red);stroke-width:3} svg.fig .pt{fill:var(--red)} svg.
 svg.fig .cell{fill:var(--c1s);stroke:var(--ink);stroke-width:2} svg.fig .cell.c2{fill:var(--c3s)} svg.fig .cell.extra{fill:none;stroke-dasharray:4 3}
 svg.fig .brace{stroke:var(--red);stroke-width:2.5;fill:none}
 svg.fig .road{stroke:var(--ink);stroke-width:4;stroke-linecap:round} svg.fig .arr{stroke:var(--blue);stroke-width:3;fill:none;stroke-linecap:round} svg.fig .arr.b2{stroke:var(--red)}
+
+/* bảng đặt tính */
+.ws{display:inline-flex;flex-direction:column;gap:4px;align-self:center;background:var(--sun-s);border-radius:14px;padding:12px 14px;max-width:100%;--cw:min(38px,calc((100vw - 120px) / var(--n)))}
+.wr{display:flex;gap:3px;justify-content:flex-end}
+.wr.line{border-bottom:3px solid var(--ink);padding-bottom:6px;margin-bottom:4px}
+.wc{width:var(--cw,36px);height:calc(var(--cw,36px)*1.15);display:grid;place-items:center;font:700 clamp(18px,5.6vw,26px) var(--mono);border-radius:8px;border:2px solid transparent;min-width:0}
+.wc.fx,.wc.op{color:var(--ink)} .wc.op{color:var(--red)}
+.fld.in{background:var(--card);border:2px solid var(--line);cursor:pointer;color:var(--ink)}
+.fld.in.act{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-s)}
+.fld.ok{background:var(--leaf-s);border-color:var(--leaf)} .fld.bad{background:var(--red-s);border-color:var(--red);color:var(--red-d)}
+.wc.wide{display:inline-grid;width:44px;height:44px;vertical-align:middle;margin:0 6px}
+.wextra{margin-top:8px;font-weight:700}
+.wsd{display:flex;flex-direction:column;gap:8px}
+.dstep{border:2px solid var(--line);border-radius:12px;padding:8px 12px;background:var(--card)}
+.dh{font-weight:800;font-size:15px;margin-bottom:6px}
+.dfs{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;font-weight:700}
+.wg{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.wl{font-size:13px;color:var(--muted);font-weight:800}
+.wf{display:inline-grid;place-items:center;min-width:calc(var(--len,1)*17px + 22px);height:40px;padding:0 6px;font:700 22px var(--mono);border-radius:8px}
+.dcm{background:var(--sun-s);border-left:5px solid var(--sun-d);border-radius:8px;padding:6px 10px;font-weight:700}
+.dq{font-size:19px;font-weight:700;padding:4px 2px} .dq b{font:700 24px var(--mono)}
 /* result */
 .res{text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px;position:relative;overflow:hidden}
 .res .bigstars{display:flex;gap:6px} .res .bigstars svg{width:64px;height:64px}
@@ -229,10 +250,71 @@ function fracOp(op, a, b){
 
 /* ===== 1a. Đặt tính rồi tính ===== */
 const dstr = (v, p) => v.toFixed(p).replace('.', ',');
+const plain = x => String(rnd(x)).replace('.', ',');
 function colHtml(parts, res){
   return `<div class="col">${parts.map((l, i) => `<div class="${i === parts.length - 1 ? 'u' : ''}">${l}</div>`).join('')}${res ? `<div>${res}</div>` : ''}</div>`;
 }
 function alignCol(s, p, P){ return p === 0 ? s + ' '.repeat(P ? P + 1 : 0) : s + ' '.repeat(P - p); }
+
+/* --- Bảng đặt tính tương tác: mô tả (spec) thuần dữ liệu --- */
+const BL = () => ({ t: 'b' }), FX = ch => ({ t: 'f', v: ch });
+const blanks = n => Array.from({ length: Math.max(0, n) }, BL);
+function addSubSpec(sym, s1, s2, res, Pm){
+  const ip = s => s.split(',')[0].length, I = Math.max(ip(s1), ip(s2), ip(res)), fields = {}, resKeys = [];
+  const place = (s, mk) => {
+    const [a, b = ''] = s.split(','), cells = [];
+    for (let c = 0; c < I; c++){ const pos = a.length - (I - c); cells.push(pos >= 0 ? mk(a[pos], 'r' + c) : BL()); }
+    if (Pm > 0){ cells.push(s.indexOf(',') >= 0 ? FX(',') : BL()); for (let j = 0; j < Pm; j++) cells.push(j < b.length ? mk(b[j], 'r' + (I + j)) : BL()); }
+    return cells;
+  };
+  const inp = (ch, key) => { fields[key] = { exp: ch }; resKeys.push(key); return { t: 'i', key }; };
+  const rows = [{ cells: [BL()].concat(place(s1, FX)) }, { cells: [{ t: 'o', v: sym }].concat(place(s2, FX)), line: true }, { cells: [BL()].concat(place(res, inp)) }];
+  const order = resKeys.slice().reverse();
+  return { type: 'addsub', rows, fields, order, required: order.slice(), cols: I + (Pm > 0 ? 1 + Pm : 0) + 1 };
+}
+function mulSpec(sa, sb, Aint, Bint, k, prod){
+  const sprod = String(prod), bd = String(Bint).split('').reverse(), fields = {}, order = [];
+  const partials = bd.length > 1 ? bd.map((dg, i) => ({ i, s: String(Aint * (+dg)) })) : [];
+  const N = 1 + Math.max(sa.length, sb.length, sprod.length, ...partials.map(p => p.s.length + p.i));
+  const rowOf = (s, mk, shift = 0) => blanks(N - s.length - shift).concat([...s].map(mk), blanks(shift));
+  const rowKeys = [];
+  const inp = key => (ch) => { fields[key + rowKeys.length] = null; return null; };
+  const mkIn = (pref) => { const ks = []; const f = (ch, j) => { const key = pref + '_' + j; fields[key] = { exp: ch }; ks.push(key); return { t: 'i', key }; }; f.ks = ks; return f; };
+  const r2 = rowOf(sb, FX); r2[0] = { t: 'o', v: '×' };
+  const rows = [{ cells: rowOf(sa, FX) }, { cells: r2, line: partials.length === 0 }];
+  partials.forEach(p => { const f = mkIn('p' + p.i); rows.push({ cells: rowOf(p.s, (ch, j) => f(ch, j), p.i), line: p.i === partials.length - 1 }); order.push(...f.ks.slice().reverse()); });
+  const ff = mkIn('f'); rows.push({ cells: rowOf(sprod, (ch, j) => ff(ch, j)) }); const finalKeys = ff.ks.slice(); order.push(...finalKeys.slice().reverse());
+  fields.k = { exp: String(k) }; order.push('k');
+  return { type: 'mul', rows, fields, order, required: finalKeys.concat(['k']), cols: N, kKey: 'k' };
+}
+function divPlan(dStr, d){
+  const ic = dStr.indexOf(','), digits = dStr.replace(',', ''), intLen = ic < 0 ? digits.length : ic, steps = [];
+  let i = 1, cur = +digits[0], last = 0;
+  while (cur < d && i < digits.length){ cur = cur * 10 + (+digits[i]); last = i; i++; }
+  const mk = (cur, idx, text) => { const q = Math.floor(cur / d), prod = q * d; return { cur, idx, text, q, prod, rem: cur - prod }; };
+  steps.push(mk(cur, last, `Lấy ${cur}`)); let rem = steps[0].rem;
+  while (steps.length < 12 && (i < digits.length || rem > 0)){
+    const app = i >= digits.length, dg = app ? 0 : +digits[i], c = rem * 10 + dg;
+    const st = mk(c, i, app ? `Viết thêm chữ số 0 vào bên phải số dư, được ${c}` : `Hạ ${dg}, được ${c}`); steps.push(st); rem = st.rem; i++;
+  }
+  const commaAt = steps.findIndex(s => s.idx >= intLen);
+  if (steps[0].idx > intLen) return null;
+  const qstr = steps.map((s, k) => (k === commaAt ? (k === 0 ? '0,' : ',') : '') + s.q).join('');
+  return { steps, intLen, commaAt, qstr, d };
+}
+function divSpec(plan, pre){
+  const fields = {}, order = [], required = [];
+  if (pre){ fields.n1 = { exp: pre.e1 }; fields.n2 = { exp: pre.e2 }; order.push('n1', 'n2'); required.push('n1', 'n2'); }
+  plan.steps.forEach((s, k) => { fields['q' + k] = { exp: String(s.q) }; fields['p' + k] = { exp: String(s.prod) }; fields['m' + k] = { exp: String(s.rem) }; order.push('q' + k, 'p' + k, 'm' + k); required.push('q' + k); });
+  return { type: 'div', plan, pre, fields, order, required, steps: plan.steps, commaAt: plan.commaAt, d: plan.d };
+}
+function workCheck(spec, vals){
+  const bad = {}; let ok = true, warn = false;
+  const same = (f, v) => { v = String(v || ''); if (v === '') return false; if (f.exp.indexOf(',') >= 0 || v.indexOf(',') >= 0) return Math.abs(parseFloat(v.replace(',', '.')) - parseFloat(f.exp.replace(',', '.'))) < 1e-9; return v === f.exp; };
+  for (const k of spec.order){ if (!same(spec.fields[k], vals[k])){ bad[k] = true; if (spec.required.indexOf(k) >= 0) ok = false; else warn = true; } }
+  return { ok, bad, warn };
+}
+
 G['1a'] = (r, lv) => {
   const kinds = lv === 1 ? ['+', '-', '+', '-', '×'] : lv === 2 ? ['+', '-', '×', '×', '÷'] : ['+', '-', '×', '÷', '÷'];
   const op = r.pick(kinds);
@@ -257,7 +339,7 @@ G['1a'] = (r, lv) => {
       `Thực hiện ${op === '+' ? 'cộng' : 'trừ'} như với số tự nhiên, từ phải sang trái.`,
       colHtml([l1, l2], '  ' + dstr(ans, Pm).padStart(W)),
       `Đặt dấu phẩy ở kết quả thẳng cột với dấu phẩy của hai số. Vậy ${fmt(v1)} ${sym} ${fmt(v2)} = <b>${fmt(ans)}</b>.`];
-    return { q: `Đặt tính rồi tính: <b>${fmt(v1)} ${sym} ${fmt(v2)}</b>`, vis: colHtml([l1, l2]), kind: 'num', ans: ans, steps, hint };
+    return { q: `Đặt tính rồi tính: <b>${fmt(v1)} ${sym} ${fmt(v2)}</b>`, vis: colHtml([l1, l2]), kind: 'num', ans: ans, steps, hint, work: addSubSpec(sym, dstr(v1, p1), dstr(v2, p2), dstr(ans, Pm), Pm) };
   }
   if (op === '×'){
     let p1, A, p2, B;
@@ -272,26 +354,30 @@ G['1a'] = (r, lv) => {
       `Đếm xem ở phần thập phân của cả hai thừa số có tất cả ${k} chữ số.`,
       `Dùng dấu phẩy tách ở tích ${k} chữ số kể từ phải sang trái: ${dstr(prod / P10(k), k)}.`,
       `Vậy ${fmt(v1)} × ${fmt(v2)} = <b>${fmt(ans)}</b>.`];
-    return { q: `Đặt tính rồi tính: <b>${fmt(v1)} × ${fmt(v2)}</b>`, vis: colHtml([l1, l2]), kind: 'num', ans, steps, hint };
+    return { q: `Đặt tính rồi tính: <b>${fmt(v1)} × ${fmt(v2)}</b>`, vis: colHtml([l1, l2]), kind: 'num', ans, steps, hint, work: mulSpec(s1, s2, A, B, k, prod) };
   }
   // chia
   let D, d, Q, qp;
   if (lv === 1){ d = r.ri(2, 9); Q = r.ri(11, 99); qp = 1; D = Q * d; }
   else if (lv === 2){ d = r.ri(12, 25); Q = r.ri(11, 99); qp = r.pick([1, 2]); D = Q * d; }
   else { d = r.ri(2, 9); qp = r.pick([0, 1]); Q = qp ? r.ri(11, 59) : r.ri(2, 30); D = Q * d; }
-  let dividend, divisor, ans = Q / P10(qp), steps;
+  let dividend, divisor, ans = Q / P10(qp), steps, work = null, plan, pre = null;
   if (lv < 3){
     dividend = D / P10(qp); divisor = d;
     steps = [`Chia như với số tự nhiên: ${fmt(D)} : ${d} = ${fmt(Q)}.`,
       `Số bị chia có ${qp} chữ số ở phần thập phân nên thương cũng có ${qp} chữ số ở phần thập phân.`,
       `Vậy ${fmt(dividend)} : ${d} = <b>${fmt(ans)}</b>.`];
+    plan = divPlan(plain(dividend), d);
   } else {
     dividend = D / P10(qp + 1); divisor = d / 10;
     steps = [`Số chia là số thập phân: nhân cả số bị chia và số chia với 10 để số chia thành số tự nhiên.`,
       `${fmt(dividend)} : ${fmt(divisor)} = ${fmt(dividend * 10)} : ${d}.`,
       `${fmt(dividend * 10)} : ${d} = <b>${fmt(ans)}</b>.`];
+    pre = { text: 'Nhân cả hai số với 10', e1: plain(dividend * 10), e2: String(d) };
+    plan = divPlan(pre.e1, d);
   }
-  return { q: `Đặt tính rồi tính: <b>${fmt(dividend)} : ${fmt(divisor)}</b>`, vis: '', kind: 'num', ans, steps, hint: 'Chia số thập phân: nếu số chia là số thập phân, nhân cả hai số với 10, 100,... cho số chia thành số tự nhiên.' };
+  if (plan) work = divSpec(plan, pre);
+  return { q: `Đặt tính rồi tính: <b>${fmt(dividend)} : ${fmt(divisor)}</b>`, vis: '', kind: 'num', ans, steps, work, hint: 'Chia số thập phân: nếu số chia là số thập phân, nhân cả hai số với 10, 100,... cho số chia thành số tự nhiên.' };
 };
 
 /* ===== 1b. Phân số ===== */
@@ -900,12 +986,14 @@ function parseFrac(s){
 }
 function fracPreview(s){ s = s.trim().replace(/\s*\/\s*/g, '/'); let m; if ((m = s.match(/^(\d+) (\d+)\/(\d+)$/))) return mixh(m[1], { n: m[2], d: m[3] }); if ((m = s.match(/^(\d+)\/(\d+)$/))) return fh({ n: m[1], d: m[2] }); return ''; }
 
-function playQ(){
+function playQ(keep){
   const s = session, n = s.plan.length, p = s.plan[s.i], q = makeQ(p.id, p.seed, p.lv);
-  s.q = q; s.hintUsed = false; s.done = false;
+  s.q = q; if (!keep) s.hintUsed = false; s.done = false; s.ws = null;
+  const useWs = !!q.work && !s.quick;
   const ti = topicOf(p.id);
   let ansArea = '';
-  if (q.kind === 'choice') ansArea = `<div class="choices" id="choices">${q.choices.map((c, i) => `<button class="choice" data-i="${i}">${'ABCD'[i]}. ${c.t}</button>`).join('')}</div>`;
+  if (useWs){ s.ws = { spec: q.work, vals: {}, active: q.work.order[0] }; ansArea = wsHtml(q.work); }
+  else if (q.kind === 'choice') ansArea = `<div class="choices" id="choices">${q.choices.map((c, i) => `<button class="choice" data-i="${i}">${'ABCD'[i]}. ${c.t}</button>`).join('')}</div>`;
   else {
     const fr = q.kind === 'frac';
     const K = (v, cls = '') => `<button class="key ${cls}" data-k="${v}">${v === 'del' ? '⌫' : v === 'clr' ? 'Xóa hết' : v === ' ' ? 'cách' : v}</button>`;
@@ -915,13 +1003,15 @@ function playQ(){
   }
   go(`<div class="ptop"><button class="x" id="quit" aria-label="Thoát lượt luyện">✕</button><div class="bar" role="progressbar" aria-valuenow="${s.i}" aria-valuemin="0" aria-valuemax="${n}"><i style="width:${s.i / n * 100}%"></i></div><div class="combo" id="combo">${s.streak >= 2 ? 'Chuỗi ' + s.streak : ''}</div></div>
     <div id="quitbox" hidden class="card"><b>Thoát lượt luyện này?</b> <span class="muted">Điểm của các câu đã làm vẫn được giữ.</span><div class="row" style="margin-top:8px"><button class="btn sm" id="stay">Tiếp tục làm</button><button class="btn ghost sm" id="leave">Thoát</button></div></div>
-    <div class="card qcard" style="--tc:var(--c${ti + 1})"><div class="qtag">${SK[p.id].name} · Câu ${s.i + 1}/${n}</div><div class="qtext">${q.q}</div>${q.vis ? `<div class="vis">${q.vis}</div>` : ''}${ansArea}
-    <div id="hint"></div><div class="row"><button class="btn ghost sm" id="hintbtn">Gợi ý</button>${q.kind !== 'choice' ? '<button class="btn" id="check">Kiểm tra</button>' : ''}</div><div id="msg" class="small" style="color:var(--red);font-weight:800" role="alert"></div><div id="fb"></div></div>`);
+    <div class="card qcard" style="--tc:var(--c${ti + 1})"><div class="qtag">${SK[p.id].name} · Câu ${s.i + 1}/${n}</div><div class="qtext">${q.q}</div>${q.vis && !useWs ? `<div class="vis">${q.vis}</div>` : ''}${ansArea}
+    <div id="hint"></div><div class="row"><button class="btn ghost sm" id="hintbtn">Gợi ý</button>${q.work ? `<button class="btn ghost sm" id="modeb">${useWs ? 'Chỉ nhập đáp số' : 'Đặt tính trên bảng'}</button>` : ''}${q.kind !== 'choice' ? '<button class="btn" id="check">Kiểm tra</button>' : ''}</div><div id="msg" class="small" style="color:var(--red);font-weight:800" role="alert"></div><div id="fb"></div></div>`);
   document.getElementById('quit').onclick = () => { document.getElementById('quitbox').hidden = false; };
   document.getElementById('stay').onclick = () => { document.getElementById('quitbox').hidden = true; };
   document.getElementById('leave').onclick = () => { session = null; home(); };
   document.getElementById('hintbtn').onclick = () => { s.hintUsed = true; document.getElementById('hint').innerHTML = `<div class="hintbox"><b>Gợi ý:</b> ${q.hint || 'Đọc kĩ đề và làm từng bước.'}</div>`; };
-  if (q.kind === 'choice') app.querySelectorAll('.choice').forEach(b => b.onclick = () => { if (!s.done) judge(q.choices[+b.dataset.i].ok, b); });
+  if (q.work) document.getElementById('modeb').onclick = () => { s.quick = !s.quick; playQ(true); };
+  if (useWs) wsAttach();
+  else if (q.kind === 'choice') app.querySelectorAll('.choice').forEach(b => b.onclick = () => { if (!s.done) judge(q.choices[+b.dataset.i].ok, b); });
   else {
     const inp = document.getElementById('inp'), prev = document.getElementById('prev');
     const upd = () => { document.getElementById('msg').textContent = ''; if (prev) prev.innerHTML = fracPreview(inp.value); };
@@ -931,6 +1021,82 @@ function playQ(){
     document.getElementById('check').onclick = submitAns;
     inp.focus({ preventScroll: true });
   }
+}
+
+/* ===== Bảng đặt tính tương tác ===== */
+function wsCell(c){
+  if (c.t === 'b') return '<div class="wc"></div>';
+  if (c.t === 'f') return `<div class="wc fx">${c.v}</div>`;
+  if (c.t === 'o') return `<div class="wc op">${c.v}</div>`;
+  return `<div class="wc fld in" role="button" tabindex="0" aria-label="Ô điền số" data-k="${c.key}"></div>`;
+}
+function wsHtml(sp){
+  let h = '';
+  if (sp.type === 'div'){
+    h += `<div class="wsd">`;
+    if (sp.pre) h += `<div class="dstep"><div class="dh">Bước 0: ${sp.pre.text}, ta được phép chia mới</div><div class="dfs"><span class="wf fld in" data-k="n1" style="--len:${sp.pre.e1.length}" role="button" tabindex="0" aria-label="Số bị chia mới"></span><b>:</b><span class="wf fld in" data-k="n2" style="--len:${sp.pre.e2.length}" role="button" tabindex="0" aria-label="Số chia mới"></span></div></div>`;
+    sp.steps.forEach((s, k) => {
+      const f = (key, lab) => `<span class="wg"><span class="wl">${lab}</span><span class="wf fld in" data-k="${key}" style="--len:${sp.fields[key].exp.length}" role="button" tabindex="0" aria-label="${lab}"></span></span>`;
+      h += `${k === sp.commaAt ? `<div class="dcm">${k === 0 ? 'Số bị chia chưa đủ chia ở phần nguyên: viết <b>0,</b> ở thương trước.' : 'Đã hạ hết phần nguyên: viết <b>dấu phẩy</b> ở thương.'}</div>` : ''}<div class="dstep"><div class="dh">Bước ${k + 1}: ${s.text}</div><div class="dfs"><span>${s.cur} : ${sp.d}</span>${f('q' + k, 'Thương')}<span>${sp.d} × thương</span>${f('p' + k, 'Tích')}<span>${s.cur} − tích</span>${f('m' + k, 'Dư')}</div></div>`;
+    });
+    return h + `<div class="dq">Thương của em: <b id="dq">·</b></div></div>` + wsKeys();
+  }
+  h += `<div class="ws" style="--n:${sp.cols}">` + sp.rows.map(r => `<div class="wr${r.line ? ' line' : ''}">${r.cells.map(wsCell).join('')}</div>`).join('') + '</div>';
+  if (sp.type === 'mul') h += `<div class="wextra">Dùng dấu phẩy tách ra <span class="wc fld in wide" data-k="k" role="button" tabindex="0" aria-label="Số chữ số thập phân"></span> chữ số ở phần thập phân của tích.</div>`;
+  return h + wsKeys();
+}
+function wsKeys(){
+  const K = (v, lab, cls = '', st = '') => `<button class="key wkey ${cls}" data-w="${v}" style="${st}">${lab || v}</button>`;
+  return `<div class="small muted" style="margin-top:8px">Chạm vào ô để chọn, rồi bấm số. Ô sẽ tự nhảy sang ô kế tiếp.</div><div class="keys">${K(7)}${K(8)}${K(9)}${K('del', '⌫', 'fn')}${K(4)}${K(5)}${K(6)}${K(',', ',', 'fn')}${K(1)}${K(2)}${K(3)}${K('next', 'Tiếp ▸', 'fn')}${K(0)}${K('clr', 'Xóa ô', 'fn', 'grid-column:span 3')}</div>`;
+}
+const wsEl = k => app.querySelector(`.fld[data-k="${k}"]`);
+function wsRefresh(){
+  const w = session && session.ws; if (!w) return;
+  w.spec.order.forEach(k => { const el = wsEl(k); if (!el) return; el.textContent = w.vals[k] || ''; el.classList.toggle('act', k === w.active && !session.done); });
+  const dq = document.getElementById('dq');
+  if (dq){ const sp = w.spec; dq.textContent = sp.steps.map((s, k) => (k === sp.commaAt ? (k === 0 ? '0,' : ',') : '') + (w.vals['q' + k] || '·')).join(''); }
+  const cb = app.querySelector('.wkey[data-w=","]'); if (cb) cb.disabled = !!session.done || !(w.active && w.spec.fields[w.active].exp.indexOf(',') >= 0);
+}
+function wsSet(k){ const w = session.ws; if (!w || session.done) return; w.active = k; wsRefresh(); const el = wsEl(k); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' }); }
+function wsStep(dir){ const w = session.ws, o = w.spec.order, i = o.indexOf(w.active), j = Math.min(o.length - 1, Math.max(0, i + dir)); wsSet(o[j]); }
+function wsType(ch){
+  const w = session && session.ws; if (!w || session.done) return;
+  const k = w.active, f = w.spec.fields[k]; let v = w.vals[k] || '';
+  document.getElementById('msg').textContent = '';
+  if (ch === 'next'){ wsStep(1); return; }
+  if (ch === 'clr'){ w.vals[k] = ''; wsRefresh(); return; }
+  if (ch === 'del'){ if (v === ''){ wsStep(-1); const k2 = w.active; w.vals[k2] = (w.vals[k2] || '').slice(0, -1); wsRefresh(); } else { w.vals[k] = v.slice(0, -1); wsRefresh(); } return; }
+  if (ch === ',' && f.exp.indexOf(',') < 0) return;
+  if (v.length >= f.exp.length) v = '';
+  w.vals[k] = v + ch; wsRefresh();
+  if (w.vals[k].length >= f.exp.length) wsStep(1);
+}
+function wsAttach(){
+  const w = session.ws;
+  app.querySelectorAll('.fld').forEach(el => { el.onclick = () => wsSet(el.dataset.k); el.onkeydown = e => { if (e.key === ' ' || e.key === 'Enter'){ wsSet(el.dataset.k); e.preventDefault(); } }; });
+  app.querySelectorAll('.wkey').forEach(b => b.onclick = () => wsType(b.dataset.w));
+  document.getElementById('check').onclick = submitWork;
+  wsRefresh();
+}
+document.addEventListener('keydown', e => {
+  if (!session || !session.ws || session.done || e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target && e.target.tagName; if (t === 'INPUT' || t === 'TEXTAREA') return;
+  if (/^[0-9]$/.test(e.key)) wsType(e.key);
+  else if (e.key === ',' || e.key === '.') wsType(',');
+  else if (e.key === 'Backspace') wsType('del');
+  else if (e.key === 'Enter'){ if (e.target && e.target.classList && e.target.classList.contains('fld')) return; submitWork(); }
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') wsStep(-1);
+  else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') wsStep(1);
+  else return;
+  e.preventDefault();
+});
+function submitWork(){
+  const s = session, w = s && s.ws; if (!w || s.done) return;
+  const missing = w.spec.required.filter(k => (w.vals[k] || '').length < w.spec.fields[k].exp.length);
+  if (missing.length){ document.getElementById('msg').textContent = 'Em hãy điền hết các ô cần thiết. Chạm ô còn trống rồi bấm số.'; wsSet(missing[0]); return; }
+  const r = workCheck(w.spec, w.vals);
+  judge(r.ok, null, r.ok && r.warn ? 'Kết quả đúng, nhưng có bước trung gian chưa đúng (các ô màu đỏ). Em xem lại nhé.' : '');
+  w.spec.order.forEach(k => { const el = wsEl(k); if (!el) return; el.classList.remove('act'); if (r.bad[k]){ el.classList.add('bad'); el.title = 'Em điền: ' + (w.vals[k] || 'trống'); el.textContent = w.spec.fields[k].exp; } else el.classList.add('ok'); });
 }
 function submitAns(){
   const s = session, q = s.q; if (!s || s.done) return;
@@ -942,7 +1108,7 @@ function submitAns(){
 function judge(ok, btn, note = ''){
   const s = session, q = s.q, p = s.plan[s.i]; s.done = true;
   const inp = document.getElementById('inp'); if (inp) inp.disabled = true;
-  app.querySelectorAll('.key').forEach(b => b.disabled = true);
+  app.querySelectorAll('.key,.wkey').forEach(b => b.disabled = true);
   if (q.kind === 'choice'){ app.querySelectorAll('.choice').forEach((b, i) => { b.disabled = true; if (q.choices[i].ok) b.classList.add('ok'); }); if (!ok && btn) btn.classList.add('no'); }
   const st = S.skills[p.id] || (S.skills[p.id] = { att: 0, cor: 0, stars: 0 }); st.att++;
   let gain = 0;
